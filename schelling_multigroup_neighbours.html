@@ -62,44 +62,44 @@
   <div class="controls">
     <div class="ctrl-group">
       <label>Número de grupos</label>
-      <input type="range" id="nGroups" min="2" max="5" value="3" step="1" style="width:110px">
+      <input type="range" id="nGroups" step="1" style="width:110px">
       <span id="nGroupsVal">3 grupos</span>
     </div>
 
     <div class="ctrl-group">
       <label>Número de vecinos</label>
-      <input type="range" id="nNeighbors" min="3" max="8" value="6" step="1" style="width:110px">
+      <input type="range" id="nNeighbors" step="1" style="width:110px">
       <span id="nNeighborsVal">6 vecinos</span>
     </div>
 
     <div class="ctrl-group">
       <label>Tamaño de cuadrícula</label>
-      <input type="range" id="gridSize" min="15" max="60" value="35" step="5" style="width:110px">
+      <input type="range" id="gridSize" step="5" style="width:110px">
       <span id="gridSizeVal">35 × 35</span>
     </div>
     <div class="ctrl-group">
       <label>% celdas vacías</label>
-      <input type="range" id="empty" min="5" max="40" value="15" step="5" style="width:110px">
+      <input type="range" id="empty" step="5" style="width:110px">
       <span id="emptyVal">15%</span>
     </div>
     <div class="ctrl-group">
       <label>Umbral de tolerancia &#964;</label>
-      <input type="range" id="thresh" min="0" max="100" value="40" step="5" style="width:110px">
+      <input type="range" id="thresh" step="5" style="width:110px">
       <span id="threshVal">40%</span>
     </div>
     <div class="ctrl-group">
       <label>Velocidad</label>
-      <input type="range" id="speed" min="1" max="11" value="5" style="width:90px">
+      <input type="range" id="speed" style="width:90px">
       <span id="speedVal">5</span>
     </div>
     <div class="ctrl-group">
       <label>Ventana n (paro)</label>
-      <input type="range" id="stallWindow" min="0" max="1000" value="500" step="100" style="width:110px">
+      <input type="range" id="stallWindow" step="100" style="width:110px">
       <span id="stallWindowVal">500 gen</span>
     </div>
     <div class="ctrl-group">
       <label>Delta minimo sat.</label>
-      <input type="range" id="stallDelta" min="0" max="20" value="2" step="1" style="width:110px">
+      <input type="range" id="stallDelta" step="1" style="width:110px">
       <span id="stallDeltaVal">2 puntos</span>
     </div>
   </div>
@@ -164,6 +164,18 @@ const GROUP_COLORS = [
   { fill: '#F4C0D1', stroke: '#993556', name: 'Grupo D' },
   { fill: '#FAC775', stroke: '#854F0B', name: 'Grupo E' },
 ];
+
+// Zona de configuracion de controles: min, max y valor por defecto.
+const CONTROL_CONFIG = {
+  nGroups:      { min: 2,   max: 5,     default: 3    },
+  nNeighbors:   { min: 3,   max: 25,     default: 6   },
+  gridSize:     { min: 15,  max: 60,    default: 35   },
+  empty:        { min: 5,   max: 40,    default: 15   },
+  thresh:       { min: 0,   max: 100,   default: 40   },
+  speed:        { min: 1,   max: 11,    default: 5    },
+  stallWindow:  { min: 0,   max: 1000,  default: 500  },
+  stallDelta:   { min: 0,   max: 20,    default: 2    },
+};
 
 let G = [], N = 35, gen = 0, timer = null, running = false;
 let unhappyHistory = [];
@@ -232,6 +244,25 @@ function resizeGridCanvas() {
 
 function numGroups() { return parseInt(document.getElementById('nGroups').value); }
 function numNeighbors() { return parseInt(document.getElementById('nNeighbors').value); }
+
+function applyControlConfig() {
+  Object.entries(CONTROL_CONFIG).forEach(([id, cfg]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.min = String(cfg.min);
+    el.max = String(cfg.max);
+    el.value = String(cfg.default);
+  });
+
+  document.getElementById('nGroupsVal').textContent = CONTROL_CONFIG.nGroups.default + ' grupos';
+  document.getElementById('nNeighborsVal').textContent = CONTROL_CONFIG.nNeighbors.default + ' vecinos';
+  document.getElementById('gridSizeVal').textContent = CONTROL_CONFIG.gridSize.default + ' × ' + CONTROL_CONFIG.gridSize.default;
+  document.getElementById('emptyVal').textContent = CONTROL_CONFIG.empty.default + '%';
+  document.getElementById('speedVal').textContent = String(CONTROL_CONFIG.speed.default);
+  document.getElementById('stallWindowVal').textContent = CONTROL_CONFIG.stallWindow.default + ' gen';
+  document.getElementById('stallDeltaVal').textContent = CONTROL_CONFIG.stallDelta.default + ' puntos';
+  updateThresholdLabel();
+}
 
 function updateThresholdLabel() {
   const threshEl = document.getElementById('thresh');
@@ -681,6 +712,6 @@ document.getElementById('stallDelta').oninput = function() {
 
 window.addEventListener('resize', resizeGridCanvas);
 
-updateThresholdLabel();
+applyControlConfig();
 init();
 </script>
