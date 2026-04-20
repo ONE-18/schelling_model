@@ -10,6 +10,7 @@
   .stat { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 10px 12px; }
   .stat-label { font-size: 11px; color: var(--color-text-secondary); margin-bottom: 2px; }
   .stat-val { font-size: 20px; font-weight: 500; color: var(--color-text-primary); }
+  .stat-chart { width: 100%; height: 70px; margin-top: 8px; display: block; }
   .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; align-items: center; }
   .leg-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--color-text-secondary); }
   .leg-dot { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
@@ -58,8 +59,16 @@
 
   <div class="stats">
     <div class="stat"><div class="stat-label">Generación</div><div class="stat-val" id="sGen">0</div></div>
-    <div class="stat"><div class="stat-label">Insatisfechos</div><div class="stat-val" id="sUnhappy">—</div></div>
-    <div class="stat"><div class="stat-label">Segregación</div><div class="stat-val" id="sSegr">—</div></div>
+    <div class="stat">
+      <div class="stat-label">Insatisfechos</div>
+      <div class="stat-val" id="sUnhappy">—</div>
+      <canvas id="chartUnhappy" class="stat-chart" width="260" height="70"></canvas>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Segregación</div>
+      <div class="stat-val" id="sSegr">—</div>
+      <canvas id="chartSegr" class="stat-chart" width="260" height="70"></canvas>
+    </div>
   </div>
 </div>
 
@@ -76,6 +85,8 @@ const GROUP_COLORS = [
 ];
 
 let G = [], N = 35, gen = 0, timer = null, running = false;
+let unhappyHistory = [];
+let segregationHistory = [];
 
 function numGroups() { return parseInt(document.getElementById('nGroups').value); }
 
@@ -93,6 +104,8 @@ function init() {
     }
   }
   gen = 0;
+  unhappyHistory = [];
+  segregationHistory = [];
   updateLegend();
   draw();
   updateStats();
@@ -172,11 +185,66 @@ function segregationIndex() {
 
 function updateStats(unhappy) {
   document.getElementById('sGen').textContent = gen;
+  const total = G.flat().filter(x => x !== 0).length;
+  const unhappyCount = unhappy !== undefined ? unhappy : 0;
+  const unhappyPct = total === 0 ? 0 : Math.round(unhappyCount / total * 100);
+  const segregation = segregationIndex();
+
   if (unhappy !== undefined) {
-    const total = G.flat().filter(x => x !== 0).length;
-    document.getElementById('sUnhappy').textContent = unhappy + ' (' + Math.round(unhappy / (total || 1) * 100) + '%)';
+    document.getElementById('sUnhappy').textContent = unhappyCount + ' (' + unhappyPct + '%)';
   }
-  document.getElementById('sSegr').textContent = segregationIndex() + '%';
+  document.getElementById('sSegr').textContent = segregation + '%';
+
+  if (unhappy !== undefined) {
+    unhappyHistory.push(unhappyPct);
+    segregationHistory.push(segregation);
+    drawMiniChart(document.getElementById('chartUnhappy'), unhappyHistory, '#d97706');
+    drawMiniChart(document.getElementById('chartSegr'), segregationHistory, '#2563eb');
+  }
+}
+
+function drawMiniChart(canvas, values, color) {
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-background-secondary') || '#f5f5f3';
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.strokeStyle = 'rgba(120,120,120,0.2)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, h - 1);
+  ctx.lineTo(w, h - 1);
+  ctx.stroke();
+
+  if (!values.length) return;
+
+  const maxVal = 100;
+  const minVal = 0;
+  const padding = 6;
+  const plotW = w - padding * 2;
+  const plotH = h - padding * 2;
+
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  values.forEach((value, idx) => {
+    const x = padding + (values.length === 1 ? 0 : (idx / (values.length - 1)) * plotW);
+    const y = padding + (1 - (value - minVal) / (maxVal - minVal)) * plotH;
+    if (idx === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  const last = values[values.length - 1];
+  const lastX = padding + (values.length === 1 ? 0 : ((values.length - 1) / (values.length - 1)) * plotW);
+  const lastY = padding + (1 - last / 100) * plotH;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(lastX, lastY, 3, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function draw() {
