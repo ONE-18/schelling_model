@@ -169,7 +169,7 @@ const GROUP_COLORS = [
 const CONTROL_CONFIG = {
   nGroups:      { min: 2,   max: 5,     default: 3    },
   nNeighbors:   { min: 3,   max: 25,     default: 6   },
-  gridSize:     { min: 15,  max: 60,    default: 35   },
+  gridSize:     { min: 10,  max: 100,    default: 10   },
   empty:        { min: 5,   max: 40,    default: 15   },
   thresh:       { min: 0,   max: 100,   default: 40   },
   speed:        { min: 1,   max: 11,    default: 5    },
@@ -271,11 +271,10 @@ function updateThresholdLabel() {
   const pct = parseInt(threshEl.value);
   const t = pct / 100;
 
-  // x/k estrictamente por encima de t (si existe en [0, 1]).
-  const xAbove = Math.min(k, Math.floor(t * k) + 1);
+  const xAbove = Math.min(k, Math.floor(t * k));
   const ratioPct = Math.round((xAbove / k) * 100);
-  // threshOut.textContent = pct + '% (' + xAbove + '/' + k + ' = ' + ratioPct + '%)';
-  threshOut.textContent = pct + '%';
+  threshOut.textContent = pct + '% (' + xAbove + '/' + k + ' = ' + ratioPct + '%)';
+  // threshOut.textContent = pct + '%';
 }
 
 function isRenderableNeighborShape(k) {
@@ -412,7 +411,8 @@ function step() {
       if (G[i][j] === 0) empty.push([i, j]);
       else if (!isHappy(i, j)) unhappy.push([i, j]);
     }
-  shuffle(unhappy); shuffle(empty);
+  shuffle(unhappy); 
+  shuffle(empty);
   const moves = Math.min(unhappy.length, empty.length);
   for (let k = 0; k < moves; k++) {
     const [ui, uj] = unhappy[k];
@@ -464,12 +464,8 @@ function updateStats(unhappy) {
   if (unhappy !== undefined) {
     document.getElementById('sUnhappy').textContent = unhappyCount + ' (' + unhappyPct + '%)';
     const sat = 100 - unhappyPct;
-    // document.getElementById('sSat').textContent = sat + '%';
     satisfactionHistory.push(sat);
   } 
-  // else {
-  //   document.getElementById('sSat').textContent = '—';
-  // }
   document.getElementById('sSegr').textContent = segregation + '%';
 
   if (unhappy !== undefined) {
