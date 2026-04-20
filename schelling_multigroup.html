@@ -126,8 +126,9 @@ function neighbors(i, j) {
   for (let di = -1; di <= 1; di++)
     for (let dj = -1; dj <= 1; dj++) {
       if (di === 0 && dj === 0) continue;
-      const ni = i + di, nj = j + dj;
-      if (ni >= 0 && ni < N && nj >= 0 && nj < N) res.push(G[ni][nj]);
+      const ni = (i + di + N) % N;
+      const nj = (j + dj + N) % N;
+      res.push(G[ni][nj]);
     }
   return res;
 }
