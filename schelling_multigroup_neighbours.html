@@ -83,7 +83,7 @@
       <span id="emptyVal">15%</span>
     </div>
     <div class="ctrl-group">
-      <label>Umbral de tolerancia</label>
+      <label>Umbral de tolerancia &#964;</label>
       <input type="range" id="thresh" min="0" max="100" value="40" step="5" style="width:110px">
       <span id="threshVal">40%</span>
     </div>
@@ -232,6 +232,20 @@ function resizeGridCanvas() {
 
 function numGroups() { return parseInt(document.getElementById('nGroups').value); }
 function numNeighbors() { return parseInt(document.getElementById('nNeighbors').value); }
+
+function updateThresholdLabel() {
+  const threshEl = document.getElementById('thresh');
+  const threshOut = document.getElementById('threshVal');
+  const k = numNeighbors();
+  const pct = parseInt(threshEl.value);
+  const t = pct / 100;
+
+  // x/k estrictamente por encima de t (si existe en [0, 1]).
+  const xAbove = Math.min(k, Math.floor(t * k) + 1);
+  const ratioPct = Math.round((xAbove / k) * 100);
+  // threshOut.textContent = pct + '% (' + xAbove + '/' + k + ' = ' + ratioPct + '%)';
+  threshOut.textContent = pct + '%';
+}
 
 function isRenderableNeighborShape(k) {
   return k === 3 || k === 4 || k === 6;
@@ -650,7 +664,7 @@ document.getElementById('btnPlay').onclick = () => {
     else if (id === 'nGroups') out.textContent = el.value + ' grupos';
     else if (id === 'nNeighbors') out.textContent = el.value + ' vecinos';
     else if (id === 'empty') out.textContent = el.value + '%';
-    else if (id === 'thresh') out.textContent = el.value + '%';
+    if (id === 'thresh' || id === 'nNeighbors') updateThresholdLabel();
     stop(); init();
   };
 });
@@ -667,5 +681,6 @@ document.getElementById('stallDelta').oninput = function() {
 
 window.addEventListener('resize', resizeGridCanvas);
 
+updateThresholdLabel();
 init();
 </script>
