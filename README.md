@@ -1,6 +1,6 @@
-# Modelo de segregación de Schelling
+# Modelo de Schelling
 
-Proyecto simple para simular el modelo de segregación de Schelling en dos formatos:
+Proyecto simple para simular el modelo de Schelling en dos formatos:
 
 - **Python** con interfaz gráfica usando `tkinter`
 - **HTML / JavaScript** para ejecución en navegador
