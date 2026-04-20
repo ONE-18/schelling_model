@@ -14,7 +14,11 @@
   .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; align-items: center; }
   .leg-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--color-text-secondary); }
   .leg-dot { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
-  canvas { border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); display: block; }
+  #grid2 { border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); display: block; margin: 0 auto; }
+
+  @media (max-width: 680px) {
+    .stats { grid-template-columns: 1fr; }
+  }
 </style>
 
 <div id="sch2">
@@ -75,6 +79,11 @@
 <script>
 const canvas = document.getElementById('grid2');
 const ctx = canvas.getContext('2d');
+const root = document.getElementById('sch2');
+const controlsEl = root.querySelector('.controls');
+const btnRowEl = root.querySelector('.btn-row');
+const legendEl = document.getElementById('legend');
+const statsEl = root.querySelector('.stats');
 
 const GROUP_COLORS = [
   { fill: '#B5D4F4', stroke: '#185FA5', name: 'Grupo A' },
@@ -88,9 +97,32 @@ let G = [], N = 35, gen = 0, timer = null, running = false;
 let unhappyHistory = [];
 let segregationHistory = [];
 
+function resizeGridCanvas() {
+  const rect = root.getBoundingClientRect();
+  const viewportSpace = window.innerHeight - rect.top - 12;
+
+  const fixedHeight =
+    controlsEl.offsetHeight +
+    btnRowEl.offsetHeight +
+    legendEl.offsetHeight +
+    statsEl.offsetHeight +
+    72;
+
+  const maxByHeight = Math.max(140, Math.floor(viewportSpace - fixedHeight));
+  const maxByWidth = Math.max(140, Math.floor(root.clientWidth - 2));
+  const side = Math.max(140, Math.min(maxByHeight, maxByWidth));
+
+  if (canvas.width !== side || canvas.height !== side) {
+    canvas.width = side;
+    canvas.height = side;
+    draw();
+  }
+}
+
 function numGroups() { return parseInt(document.getElementById('nGroups').value); }
 
 function init() {
+  resizeGridCanvas();
   N = parseInt(document.getElementById('gridSize').value);
   const emptyPct = parseInt(document.getElementById('empty').value) / 100;
   const ng = numGroups();
@@ -107,6 +139,7 @@ function init() {
   unhappyHistory = [];
   segregationHistory = [];
   updateLegend();
+  resizeGridCanvas();
   draw();
   updateStats();
 }
@@ -119,6 +152,7 @@ function updateLegend() {
     const c = GROUP_COLORS[k];
     leg.innerHTML += `<div class="leg-item"><div class="leg-dot" style="background:${c.fill};border:1px solid ${c.stroke}"></div>${c.name}</div>`;
   }
+  resizeGridCanvas();
 }
 
 function neighbors(i, j) {
@@ -302,6 +336,8 @@ document.getElementById('speed').oninput = function() {
   document.getElementById('speedVal').textContent = this.value;
   if (running) { stop(); document.getElementById('btnPlay').click(); }
 };
+
+window.addEventListener('resize', resizeGridCanvas);
 
 init();
 </script>
