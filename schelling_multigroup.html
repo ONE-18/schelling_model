@@ -1,0 +1,238 @@
+
+<style>
+  #sch2 { padding: 1rem 0; font-family: var(--font-sans); }
+  .controls { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 1.25rem; align-items: flex-end; }
+  .ctrl-group { display: flex; flex-direction: column; gap: 4px; }
+  .ctrl-group label { font-size: 12px; color: var(--color-text-secondary); }
+  .ctrl-group span { font-size: 13px; font-weight: 500; color: var(--color-text-primary); }
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 1rem; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 1rem; }
+  .stat { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 10px 12px; }
+  .stat-label { font-size: 11px; color: var(--color-text-secondary); margin-bottom: 2px; }
+  .stat-val { font-size: 20px; font-weight: 500; color: var(--color-text-primary); }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; align-items: center; }
+  .leg-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--color-text-secondary); }
+  .leg-dot { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+  canvas { border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); display: block; }
+</style>
+
+<div id="sch2">
+  <h2 class="sr-only">Modelo de Schelling con múltiples grupos</h2>
+
+  <div class="controls">
+    <div class="ctrl-group">
+      <label>Número de grupos</label>
+      <input type="range" id="nGroups" min="2" max="5" value="3" step="1" style="width:110px">
+      <span id="nGroupsVal">3 grupos</span>
+    </div>
+    <div class="ctrl-group">
+      <label>Tamaño de cuadrícula</label>
+      <input type="range" id="gridSize" min="15" max="60" value="35" step="5" style="width:110px">
+      <span id="gridSizeVal">35 × 35</span>
+    </div>
+    <div class="ctrl-group">
+      <label>% celdas vacías</label>
+      <input type="range" id="empty" min="5" max="40" value="15" step="5" style="width:110px">
+      <span id="emptyVal">15%</span>
+    </div>
+    <div class="ctrl-group">
+      <label>Umbral de tolerancia</label>
+      <input type="range" id="thresh" min="0" max="100" value="40" step="5" style="width:110px">
+      <span id="threshVal">40%</span>
+    </div>
+    <div class="ctrl-group">
+      <label>Velocidad</label>
+      <input type="range" id="speed" min="1" max="11" value="5" style="width:90px">
+      <span id="speedVal">5</span>
+    </div>
+  </div>
+
+  <div class="btn-row">
+    <button id="btnInit">Reiniciar</button>
+    <button id="btnStep">Paso</button>
+    <button id="btnPlay">▶ Ejecutar</button>
+  </div>
+
+  <div class="legend" id="legend"></div>
+  <canvas id="grid2" width="540" height="540"></canvas>
+
+  <div class="stats">
+    <div class="stat"><div class="stat-label">Generación</div><div class="stat-val" id="sGen">0</div></div>
+    <div class="stat"><div class="stat-label">Insatisfechos</div><div class="stat-val" id="sUnhappy">—</div></div>
+    <div class="stat"><div class="stat-label">Segregación</div><div class="stat-val" id="sSegr">—</div></div>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('grid2');
+const ctx = canvas.getContext('2d');
+
+const GROUP_COLORS = [
+  { fill: '#B5D4F4', stroke: '#185FA5', name: 'Grupo A' },
+  { fill: '#F5C4B3', stroke: '#993C1D', name: 'Grupo B' },
+  { fill: '#C0DD97', stroke: '#3B6D11', name: 'Grupo C' },
+  { fill: '#F4C0D1', stroke: '#993556', name: 'Grupo D' },
+  { fill: '#FAC775', stroke: '#854F0B', name: 'Grupo E' },
+];
+
+let G = [], N = 35, gen = 0, timer = null, running = false;
+
+function numGroups() { return parseInt(document.getElementById('nGroups').value); }
+
+function init() {
+  N = parseInt(document.getElementById('gridSize').value);
+  const emptyPct = parseInt(document.getElementById('empty').value) / 100;
+  const ng = numGroups();
+  G = [];
+  for (let i = 0; i < N; i++) {
+    G.push([]);
+    for (let j = 0; j < N; j++) {
+      const r = Math.random();
+      if (r < emptyPct) G[i].push(0);
+      else G[i].push(1 + Math.floor(Math.random() * ng));
+    }
+  }
+  gen = 0;
+  updateLegend();
+  draw();
+  updateStats();
+}
+
+function updateLegend() {
+  const ng = numGroups();
+  const leg = document.getElementById('legend');
+  leg.innerHTML = '';
+  for (let k = 0; k < ng; k++) {
+    const c = GROUP_COLORS[k];
+    leg.innerHTML += `<div class="leg-item"><div class="leg-dot" style="background:${c.fill};border:1px solid ${c.stroke}"></div>${c.name}</div>`;
+  }
+}
+
+function neighbors(i, j) {
+  const res = [];
+  for (let di = -1; di <= 1; di++)
+    for (let dj = -1; dj <= 1; dj++) {
+      if (di === 0 && dj === 0) continue;
+      const ni = i + di, nj = j + dj;
+      if (ni >= 0 && ni < N && nj >= 0 && nj < N) res.push(G[ni][nj]);
+    }
+  return res;
+}
+
+function isHappy(i, j) {
+  const v = G[i][j];
+  if (v === 0) return true;
+  const thresh = parseInt(document.getElementById('thresh').value) / 100;
+  const nbrs = neighbors(i, j).filter(x => x !== 0);
+  if (nbrs.length === 0) return true;
+  const same = nbrs.filter(x => x === v).length;
+  return same / nbrs.length >= thresh;
+}
+
+function step() {
+  const unhappy = [], empty = [];
+  for (let i = 0; i < N; i++)
+    for (let j = 0; j < N; j++) {
+      if (G[i][j] === 0) empty.push([i, j]);
+      else if (!isHappy(i, j)) unhappy.push([i, j]);
+    }
+  shuffle(unhappy); shuffle(empty);
+  const moves = Math.min(unhappy.length, empty.length);
+  for (let k = 0; k < moves; k++) {
+    const [ui, uj] = unhappy[k];
+    const [ei, ej] = empty[k];
+    G[ei][ej] = G[ui][uj];
+    G[ui][uj] = 0;
+  }
+  gen++;
+  draw();
+  updateStats(unhappy.length);
+  if (unhappy.length === 0 && running) stop();
+}
+
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+}
+
+function segregationIndex() {
+  let same = 0, total = 0;
+  for (let i = 0; i < N; i++)
+    for (let j = 0; j < N; j++) {
+      if (G[i][j] === 0) continue;
+      const nbrs = neighbors(i, j).filter(x => x !== 0);
+      if (!nbrs.length) continue;
+      same += nbrs.filter(x => x === G[i][j]).length;
+      total += nbrs.length;
+    }
+  return total === 0 ? 0 : Math.round(same / total * 100);
+}
+
+function updateStats(unhappy) {
+  document.getElementById('sGen').textContent = gen;
+  if (unhappy !== undefined) {
+    const total = G.flat().filter(x => x !== 0).length;
+    document.getElementById('sUnhappy').textContent = unhappy + ' (' + Math.round(unhappy / (total || 1) * 100) + '%)';
+  }
+  document.getElementById('sSegr').textContent = segregationIndex() + '%';
+}
+
+function draw() {
+  const W = canvas.width, sz = W / N;
+  ctx.clearRect(0, 0, W, W);
+  for (let i = 0; i < N; i++) {
+    for (let j = 0; j < N; j++) {
+      const v = G[i][j];
+      if (v === 0) {
+        ctx.fillStyle = '#e8e6e0';
+        ctx.fillRect(j * sz, i * sz, sz, sz);
+        continue;
+      }
+      const c = GROUP_COLORS[v - 1];
+      ctx.fillStyle = c.fill;
+      ctx.fillRect(j * sz, i * sz, sz, sz);
+      if (sz > 5) {
+        ctx.strokeStyle = c.stroke;
+        ctx.lineWidth = 0.3;
+        ctx.strokeRect(j * sz, i * sz, sz, sz);
+      }
+    }
+  }
+}
+
+function stop() {
+  running = false;
+  clearInterval(timer);
+  document.getElementById('btnPlay').textContent = '▶ Ejecutar';
+}
+
+document.getElementById('btnInit').onclick = () => { stop(); init(); };
+document.getElementById('btnStep').onclick = step;
+document.getElementById('btnPlay').onclick = () => {
+  if (running) { stop(); return; }
+  running = true;
+  document.getElementById('btnPlay').textContent = '⏸ Pausar';
+  const spd = 11 - parseInt(document.getElementById('speed').value);
+  timer = setInterval(step, spd * 60);
+};
+
+['gridSize','empty','thresh','nGroups'].forEach(id => {
+  const el = document.getElementById(id);
+  const out = document.getElementById(id + 'Val');
+  el.oninput = () => {
+    if (id === 'gridSize') out.textContent = el.value + ' × ' + el.value;
+    else if (id === 'nGroups') out.textContent = el.value + ' grupos';
+    else if (id === 'empty') out.textContent = el.value + '%';
+    else if (id === 'thresh') out.textContent = el.value + '%';
+    stop(); init();
+  };
+});
+document.getElementById('speed').oninput = function() {
+  document.getElementById('speedVal').textContent = this.value;
+  if (running) { stop(); document.getElementById('btnPlay').click(); }
+};
+
+init();
+</script>
