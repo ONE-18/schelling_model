@@ -6,7 +6,13 @@
   .ctrl-group label { font-size: 12px; color: var(--color-text-secondary); }
   .ctrl-group span { font-size: 13px; font-weight: 500; color: var(--color-text-primary); }
   .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 1rem; }
-  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 1rem; }
+  .sim-status {
+    margin: -0.4rem 0 0.9rem;
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    min-height: 1.1em;
+  }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 1rem; }
   .stat { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 10px 12px; }
   .stat-label { font-size: 11px; color: var(--color-text-secondary); margin-bottom: 2px; }
   .stat-val { font-size: 20px; font-weight: 500; color: var(--color-text-primary); }
@@ -80,6 +86,16 @@
       <input type="range" id="speed" min="1" max="11" value="5" style="width:90px">
       <span id="speedVal">5</span>
     </div>
+    <div class="ctrl-group">
+      <label>Ventana n (paro)</label>
+      <input type="range" id="stallWindow" min="0" max="1000" value="500" step="100" style="width:110px">
+      <span id="stallWindowVal">500 gen</span>
+    </div>
+    <div class="ctrl-group">
+      <label>Delta minimo sat.</label>
+      <input type="range" id="stallDelta" min="0" max="20" value="2" step="1" style="width:110px">
+      <span id="stallDeltaVal">2 puntos</span>
+    </div>
   </div>
 
   <div class="btn-row">
@@ -87,6 +103,7 @@
     <button id="btnStep">Paso</button>
     <button id="btnPlay">▶ Ejecutar</button>
   </div>
+  <div class="sim-status" id="simStatus"></div>
 
   <div class="model-main">
     <aside class="side-note">
@@ -109,6 +126,7 @@
 
   <div class="stats">
     <div class="stat"><div class="stat-label">Generación</div><div class="stat-val" id="sGen">0</div></div>
+    <!-- <div class="stat"><div class="stat-label">Satisfacción</div><div class="stat-val" id="sSat">—</div></div> -->
     <div class="stat">
       <div class="stat-label">Insatisfechos</div>
       <div class="stat-val" id="sUnhappy">—</div>
@@ -131,6 +149,7 @@ const controlsEl = root.querySelector('.controls');
 const btnRowEl = root.querySelector('.btn-row');
 const legendEl = document.getElementById('legend');
 const statsEl = root.querySelector('.stats');
+const simStatusEl = document.getElementById('simStatus');
 
 const GROUP_COLORS = [
   { fill: '#B5D4F4', stroke: '#185FA5', name: 'Grupo A' },
@@ -143,6 +162,21 @@ const GROUP_COLORS = [
 let G = [], N = 35, gen = 0, timer = null, running = false;
 let unhappyHistory = [];
 let segregationHistory = [];
+let satisfactionHistory = [];
+
+function setSimStatus(msg) {
+  simStatusEl.textContent = msg || '';
+}
+
+function shouldStopByStagnation() {
+  const n = parseInt(document.getElementById('stallWindow').value);
+  const delta = parseInt(document.getElementById('stallDelta').value);
+  if (n <= 0 || delta <= 0) return false;
+  if (satisfactionHistory.length <= n) return false;
+  const current = satisfactionHistory[satisfactionHistory.length - 1];
+  const past = satisfactionHistory[satisfactionHistory.length - 1 - n];
+  return (current - past) < delta;
+}
 
 function resizeGridCanvas() {
   const rect = root.getBoundingClientRect();
@@ -186,6 +220,8 @@ function init() {
   gen = 0;
   unhappyHistory = [];
   segregationHistory = [];
+  satisfactionHistory = [];
+  setSimStatus('');
   updateLegend();
   resizeGridCanvas();
   draw();
@@ -243,7 +279,15 @@ function step() {
   gen++;
   draw();
   updateStats(unhappy.length);
-  if (unhappy.length === 0 && running) stop();
+  if (unhappy.length === 0 && running) {
+    stop('Simulación detenida: no hay agentes insatisfechos.');
+    return;
+  }
+  if (running && shouldStopByStagnation()) {
+    const n = parseInt(document.getElementById('stallWindow').value);
+    const delta = parseInt(document.getElementById('stallDelta').value);
+    stop('Simulación detenida: en ' + n + ' generaciones la satisfacción no mejoró al menos ' + delta + ' puntos.');
+  }
 }
 
 function shuffle(arr) {
@@ -275,7 +319,13 @@ function updateStats(unhappy) {
 
   if (unhappy !== undefined) {
     document.getElementById('sUnhappy').textContent = unhappyCount + ' (' + unhappyPct + '%)';
-  }
+    const sat = 100 - unhappyPct;
+    // document.getElementById('sSat').textContent = sat + '%';
+    satisfactionHistory.push(sat);
+  } 
+  // else {
+  //   document.getElementById('sSat').textContent = '—';
+  // }
   document.getElementById('sSegr').textContent = segregation + '%';
 
   if (unhappy !== undefined) {
@@ -354,16 +404,18 @@ function draw() {
   }
 }
 
-function stop() {
+function stop(reason = '') {
   running = false;
   clearInterval(timer);
   document.getElementById('btnPlay').textContent = '▶ Ejecutar';
+  if (reason) setSimStatus(reason);
 }
 
 document.getElementById('btnInit').onclick = () => { stop(); init(); };
 document.getElementById('btnStep').onclick = step;
 document.getElementById('btnPlay').onclick = () => {
   if (running) { stop(); return; }
+  setSimStatus('');
   running = true;
   document.getElementById('btnPlay').textContent = '⏸ Pausar';
   const spd = 11 - parseInt(document.getElementById('speed').value);
@@ -384,6 +436,12 @@ document.getElementById('btnPlay').onclick = () => {
 document.getElementById('speed').oninput = function() {
   document.getElementById('speedVal').textContent = this.value;
   if (running) { stop(); document.getElementById('btnPlay').click(); }
+};
+document.getElementById('stallWindow').oninput = function() {
+  document.getElementById('stallWindowVal').textContent = this.value + ' gen';
+};
+document.getElementById('stallDelta').oninput = function() {
+  document.getElementById('stallDeltaVal').textContent = this.value + ' puntos';
 };
 
 window.addEventListener('resize', resizeGridCanvas);
