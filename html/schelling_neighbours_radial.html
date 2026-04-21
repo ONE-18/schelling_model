@@ -270,6 +270,8 @@ function shouldStopByStagnation() {
 }
 
 function resizeGridCanvas() {
+  // Compute the target size in CSS pixels without letting the canvas
+  // influence the measurement (avoid circular layout changes).
   const rect = root.getBoundingClientRect();
   const viewportSpace = window.innerHeight - rect.top - 12;
 
@@ -281,15 +283,36 @@ function resizeGridCanvas() {
     72;
 
   const maxByHeight = Math.max(140, Math.floor(viewportSpace - fixedHeight));
-  const widthContainer = centerEl ? centerEl.clientWidth : root.clientWidth;
-  const maxByWidth = Math.max(140, Math.floor(widthContainer - 2));
-  const side = Math.max(140, Math.min(maxByHeight, maxByWidth));
 
-  if (canvas.width !== side || canvas.height !== side) {
-    canvas.width = side;
-    canvas.height = side;
+  // Temporarily clear canvas explicit CSS size so container measurement
+  // doesn't include the previous canvas size (break the feedback loop).
+  const prevStyleW = canvas.style.width;
+  const prevStyleH = canvas.style.height;
+  canvas.style.width = '';
+  canvas.style.height = '';
+
+  const widthContainer = centerEl ? Math.floor(centerEl.getBoundingClientRect().width) : root.clientWidth;
+  const maxByWidth = Math.max(140, Math.floor(widthContainer - 2));
+  const cssSide = Math.max(140, Math.min(maxByHeight, maxByWidth));
+
+  // Restore/override canvas CSS size to the computed value
+  canvas.style.width = cssSide + 'px';
+  canvas.style.height = cssSide + 'px';
+
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  const backingW = Math.floor(cssSide * dpr);
+  const backingH = Math.floor(cssSide * dpr);
+
+  if (canvas.width !== backingW || canvas.height !== backingH) {
+    canvas.width = backingW;
+    canvas.height = backingH;
+    // Scale the drawing context so drawing operations use CSS pixels
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (G.length === N) draw();
   }
+
+  // Keep the previous inline styles in sync (already set above).
+  // No-op for prevStyle variables beyond this point.
 }
 
 function numGroups() { return parseInt(document.getElementById('nGroups').value); }
@@ -373,13 +396,15 @@ function updateLegend() {
     const c = GROUP_COLORS[k];
     leg.innerHTML += `<div class="leg-item"><div class="leg-dot" style="background:${c.fill};border:1px solid ${c.stroke}"></div>${c.name}</div>`;
   }
-  resizeGridCanvas();
 }
 
 function getHexLayout() {
   const sqrt3 = Math.sqrt(3);
-  const rByWidth = canvas.width / (sqrt3 * (N + 0.5));
-  const rByHeight = canvas.height / (1.5 * N + 0.5);
+  // Use CSS size (clientWidth/clientHeight) because ctx is scaled to DPR
+  const cw = canvas.clientWidth;
+  const ch = canvas.clientHeight;
+  const rByWidth = cw / (sqrt3 * (N + 0.5));
+  const rByHeight = ch / (1.5 * N + 0.5);
   const r = Math.max(1, Math.min(rByWidth, rByHeight));
   const hexW = sqrt3 * r;
   const gridW = hexW * (N + 0.5);
@@ -388,8 +413,8 @@ function getHexLayout() {
   return {
     r,
     hexW,
-    offsetX: (canvas.width - gridW) / 2,
-    offsetY: (canvas.height - gridH) / 2,
+    offsetX: (cw - gridW) / 2,
+    offsetY: (ch - gridH) / 2,
   };
 }
 
@@ -499,9 +524,21 @@ function updateStats(unhappy) {
 }
 
 function drawMiniChart(canvas, values, color) {
+  // Ensure mini-chart backing buffer matches DPR and use CSS sizes for layout
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  const cssW = canvas.clientWidth || parseInt(canvas.style.width) || canvas.width;
+  const cssH = canvas.clientHeight || parseInt(canvas.style.height) || canvas.height;
+  const backingW = Math.floor(cssW * dpr);
+  const backingH = Math.floor(cssH * dpr);
+  if (canvas.width !== backingW || canvas.height !== backingH) {
+    canvas.width = backingW;
+    canvas.height = backingH;
+    const cctx = canvas.getContext('2d');
+    cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
   const ctx = canvas.getContext('2d');
-  const w = canvas.width;
-  const h = canvas.height;
+  const w = cssW;
+  const h = cssH;
   ctx.clearRect(0, 0, w, h);
 
   ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-background-secondary') || '#f5f5f3';
@@ -543,20 +580,24 @@ function drawMiniChart(canvas, values, color) {
 }
 
 function getSquareLayout() {
-  const cell = Math.max(2, Math.min(canvas.width, canvas.height) / N);
+  const cw = canvas.clientWidth;
+  const ch = canvas.clientHeight;
+  const cell = Math.max(2, Math.min(cw, ch) / N);
   const gridW = cell * N;
   const gridH = cell * N;
   return {
     cell,
-    offsetX: (canvas.width - gridW) / 2,
-    offsetY: (canvas.height - gridH) / 2,
+    offsetX: (cw - gridW) / 2,
+    offsetY: (ch - gridH) / 2,
   };
 }
 
 function getTriangleLayout() {
   const sqrt3 = Math.sqrt(3);
-  const sideByWidth = canvas.width / ((N + 1) / 2);
-  const sideByHeight = (canvas.height * 2) / (N * sqrt3);
+  const cw = canvas.clientWidth;
+  const ch = canvas.clientHeight;
+  const sideByWidth = cw / ((N + 1) / 2);
+  const sideByHeight = (ch * 2) / (N * sqrt3);
   const side = Math.max(2, Math.min(sideByWidth, sideByHeight));
   const h = (sqrt3 / 2) * side;
   const gridW = side * ((N + 1) / 2);
@@ -565,8 +606,8 @@ function getTriangleLayout() {
   return {
     side,
     h,
-    offsetX: (canvas.width - gridW) / 2,
-    offsetY: (canvas.height - gridH) / 2,
+    offsetX: (cw - gridW) / 2,
+    offsetY: (ch - gridH) / 2,
   };
 }
 
@@ -600,7 +641,8 @@ function drawTriangleTile(vertices) {
 }
 
 function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // Clear using CSS pixels because ctx has been scaled for DPR
+  ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
   if (G.length !== N) return;
   const layout = getHexLayout();
   for (let i = 0; i < N; i++) {
@@ -670,7 +712,7 @@ document.getElementById('stallDelta').oninput = function() {
   document.getElementById('stallDeltaVal').textContent = this.value + ' puntos';
 };
 
-window.addEventListener('resize', resizeGridCanvas);
+// window.addEventListener('resize', resizeGridCanvas);
 
 applyControlConfig();
 init();
