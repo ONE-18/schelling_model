@@ -170,12 +170,13 @@ def main():
                            tolerance_threshold=args.thresh)
     if args.text:
         # run in text-only mode (no matplotlib)
+        print('Generation\tUnhappy Agents\tSegregation')
         for _ in range(args.steps):
             unhappy = model.step()
             total_nonempty = sum(1 for row in model.board for cell in row if cell != 0)
             unhappy_pct = 0 if total_nonempty == 0 else model.unhappy_history[-1]
             segr = model.segregation_history[-1]
-            print(f'Gen={model.gen} unhappy={unhappy} ({unhappy_pct}%) segr={segr}%')
+            print(f'Gen={model.gen}\t\tunhappy={unhappy} ({unhappy_pct}%) segr={segr}%')
             if unhappy == 0:
                 print('All agents happy — stopping')
                 break

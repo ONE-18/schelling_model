@@ -27,7 +27,12 @@ class SchellingModel:
         self.segregation_history = []
         self.satisfaction_history = []
 
+        # neighbor coords cache (computed after board/init)
+        self._neighbor_coords = None
+
         self._init_board()
+        # precompute neighbor coordinates for configured radius
+        self._compute_neighbor_coords_cache()
 
     def _init_board(self):
         total = self.N * self.N
@@ -88,34 +93,10 @@ class SchellingModel:
         return row, col
 
     def wrap_index(self, v):
-        return (v % self.N + self.N) % self.N
+        return v % self.N
 
-    def hex_neighbors_in_radius(self, row, col, radius):
-        if radius <= 0:
-            return []
-        origin_q, origin_r = self.oddr_to_axial(row, col)
-        values = []
-        seen = set()
-        for dq in range(-radius, radius + 1):
-            dr_min = max(-radius, -dq - radius)
-            dr_max = min(radius, -dq + radius)
-            for dr in range(dr_min, dr_max + 1):
-                if dq == 0 and dr == 0:
-                    continue
-                q = origin_q + dq
-                r = origin_r + dr
-                rr, cc = self.axial_to_oddr(q, r)
-                rr = self.wrap_index(rr)
-                cc = self.wrap_index(cc)
-                key = (rr, cc)
-                if key in seen:
-                    continue
-                seen.add(key)
-                values.append(self.board[rr][cc])
-        return values
-
-    def neighbors_coords(self, row, col, radius):
-        # return list of (r,c) coords for neighbors in radius
+    def _compute_neighbor_coords_once(self, row, col, radius):
+        # compute neighbor coords for a single cell (with wrapping)
         if radius <= 0:
             return []
         origin_q, origin_r = self.oddr_to_axial(row, col)
@@ -130,14 +111,44 @@ class SchellingModel:
                 q = origin_q + dq
                 r = origin_r + dr
                 rr, cc = self.axial_to_oddr(q, r)
-                rr = self.wrap_index(rr)
-                cc = self.wrap_index(cc)
+                rr = rr % self.N
+                cc = cc % self.N
                 key = (rr, cc)
                 if key in seen:
                     continue
                 seen.add(key)
                 coords.append(key)
         return coords
+
+    def _compute_neighbor_coords_cache(self):
+        # compute and store neighbor coordinate lists for every cell
+        self._neighbor_coords = [[[] for _ in range(self.N)] for _ in range(self.N)]
+        if self.num_neighbors <= 0:
+            return
+        for i in range(self.N):
+            for j in range(self.N):
+                self._neighbor_coords[i][j] = self._compute_neighbor_coords_once(i, j, self.num_neighbors)
+
+    def hex_neighbors_in_radius(self, row, col, radius):
+        # use cached neighbor coordinates when possible
+        if radius <= 0:
+            return []
+        if self._neighbor_coords is not None and radius == self.num_neighbors:
+            coords = self._neighbor_coords[row][col]
+            return [self.board[r][c] for (r, c) in coords]
+        # fallback: compute on the fly
+        coords = self._compute_neighbor_coords_once(row, col, radius)
+        return [self.board[r][c] for (r, c) in coords]
+
+    def neighbors_coords(self, row, col, radius):
+        # return list of (r,c) coords for neighbors in radius
+        if radius <= 0:
+            return []
+        # return cached coords when radius matches configured num_neighbors
+        if self._neighbor_coords is not None and radius == self.num_neighbors:
+            return list(self._neighbor_coords[row][col])
+        # otherwise compute on the fly
+        return self._compute_neighbor_coords_once(row, col, radius)
 
     def is_happy(self, row, col):
         v = int(self.board[row][col])
@@ -191,7 +202,9 @@ class SchellingModel:
                 v = int(self.board[i][j])
                 if v == 0:
                     continue
-                nbrs = [int(self.board[r][c]) for (r, c) in self.neighbors_coords(i, j, self.num_neighbors) if self.board[r][c] != 0]
+                # use cached neighbor coords when available
+                coords = self.neighbors_coords(i, j, self.num_neighbors)
+                nbrs = [int(self.board[r][c]) for (r, c) in coords if self.board[r][c] != 0]
                 if not nbrs:
                     continue
                 same += sum(1 for x in nbrs if x == v)
@@ -219,3 +232,5 @@ class SchellingModel:
 
     def reset(self):
         self._init_board()
+        # recompute neighbor cache in case parameters changed
+        self._compute_neighbor_coords_cache()
