@@ -170,7 +170,7 @@ const CONTROL_CONFIG = {
   nGroups:      { min: 2,   max: 5,     default: 3    },
   nNeighbors:   { min: 3,   max: 25,     default: 6   },
   gridSize:     { min: 10,  max: 100,    default: 10   },
-  empty:        { min: 5,   max: 40,    default: 15   },
+  empty:        { min: 0,   max: 40,    default: 15   },
   thresh:       { min: 0,   max: 100,   default: 40   },
   speed:        { min: 1,   max: 11,    default: 5    },
   stallWindow:  { min: 0,   max: 1000,  default: 500  },
@@ -301,6 +301,7 @@ function init() {
   const emptyPct = parseInt(document.getElementById('empty').value) / 100;
   const ng = numGroups();
   G = [];
+
   for (let i = 0; i < N; i++) {
     G.push([]);
     for (let j = 0; j < N; j++) {
@@ -308,6 +309,13 @@ function init() {
       if (r < emptyPct) G[i].push(0);
       else G[i].push(1 + Math.floor(Math.random() * ng));
     }
+  }
+
+  // Si empty = 0, forzar exactamente una celda vacía.
+  if (emptyPct === 0) {
+    const ei = Math.floor(Math.random() * N);
+    const ej = Math.floor(Math.random() * N);
+    G[ei][ej] = 0;
   }
   gen = 0;
   unhappyHistory = [];
