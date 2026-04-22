@@ -2,6 +2,7 @@ import argparse
 import math
 import traceback
 import sys
+import time
 from pathlib import Path
 
 # Ensure repository root is on sys.path so `training` package can be imported
@@ -169,14 +170,31 @@ def main():
                            board_size=args.size, empty_percentage=args.empty,
                            tolerance_threshold=args.thresh)
     if args.text:
-        # run in text-only mode (no matplotlib)
-        print('Generation\tUnhappy Agents\tSegregation')
+        # run in text-only mode (no matplotlib) — aligned columns with per-generation time
+        col1_width = 12
+        col2_width = 20
+        col3_width = 14
+        col4_width = 14
+        header = (
+            f"{'Generation':<{col1_width}}"
+            f"{'Unhappy Agents':<{col2_width}}"
+            f"{'Segregation':<{col3_width}}"
+            f"{'Gen Time (s)':<{col4_width}}"
+        )
+        print(header)
         for _ in range(args.steps):
+            start = time.perf_counter()
             unhappy = model.step()
+            gen_time = time.perf_counter() - start
             total_nonempty = sum(1 for row in model.board for cell in row if cell != 0)
             unhappy_pct = 0 if total_nonempty == 0 else model.unhappy_history[-1]
             segr = model.segregation_history[-1]
-            print(f'Gen={model.gen}\t\tunhappy={unhappy} ({unhappy_pct}%) segr={segr}%')
+            unhappy_str = f"{unhappy} ({unhappy_pct}%)"
+            segr_str = f"{segr}%"
+            time_str = f"{gen_time:.4f}s"
+            print(
+                f"{model.gen:<{col1_width}}{unhappy_str:<{col2_width}}{segr_str:<{col3_width}}{time_str:<{col4_width}}"
+            )
             if unhappy == 0:
                 print('All agents happy — stopping')
                 break
