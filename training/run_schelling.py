@@ -179,7 +179,6 @@ def animate_model(model: SchellingModel, interval=200, max_steps=1000, nogui=Fal
         plt.tight_layout()
         plt.show()
 
-
 def main():
     parser = argparse.ArgumentParser(description='Run Schelling model animation')
     parser.add_argument('--groups', type=int, default=3)
@@ -200,6 +199,7 @@ def main():
     # fast mode implies nogui to maximize speed
     if args.fast:
         args.nogui = True
+        args.text = False
     if args.text:
         # run in text-only mode (no matplotlib) — aligned columns with per-generation time
         col1_width = 12
@@ -229,10 +229,12 @@ def main():
             if unhappy == 0:
                 print('All agents happy — stopping')
                 break
+        print('Simulation did not converge in {} generations'.format(args.steps))
         return
 
+    t = time.time()
     animate_model(model, interval=200, max_steps=args.steps, nogui=args.nogui, out_path=args.out, fast=args.fast)
-
+    print('Simulation completed in {:.4f}s'.format(time.time() - t))
 
 if __name__ == '__main__':
     try:
