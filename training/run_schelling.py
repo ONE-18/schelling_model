@@ -19,6 +19,10 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from training.src.schelling import SchellingModel
+try:
+    from training.src.schelling_numpy import SchellingModelNumPy
+except Exception:
+    SchellingModelNumPy = None
 
 GROUP_COLORS = [
     {'fill': '#B5D4F4', 'stroke': '#185FA5', 'name': 'Grupo A'},
@@ -227,16 +231,36 @@ def main():
     parser.add_argument('--out', type=str, default=None, help='Output path for snapshot when --nogui')
     parser.add_argument('--text', action='store_true', help='Run in text-only mode, printing stats to console')
     parser.add_argument('--fast', action='store_true', help='Run in fastest mode (skip stats/plots)')
+    parser.add_argument('--use-numpy', action='store_true', default=True, help='Use NumPy-accelerated implementation (if available)')
+    parser.add_argument('--numba', action='store_true', default=True, help='Enable numba JIT in NumPy implementation (if available)')
+    parser.add_argument('--sim-runs', type=int, default=1, help='Run multiple independent simulations from same initial board and report convergence fraction')
+    parser.add_argument('--sim-parallel', action='store_true', default=True, help='When using --sim-runs, run them in parallel processes')
+    parser.add_argument('--sim-workers', type=int, default=None, help='Number of workers for parallel simulations')
     args = parser.parse_args()
 
     # crear instancia del modelo con parámetros de línea de comandos
-    model = SchellingModel(num_groups=args.groups, num_neighbors=args.radius,
-                           board_size=args.size, empty_percentage=args.empty,
-                           tolerance_threshold=args.thresh)
+    model_cls = SchellingModel
+    if args.use_numpy and SchellingModelNumPy is not None:
+        model_cls = SchellingModelNumPy
+    model = model_cls(num_groups=args.groups, num_neighbors=args.radius,
+                      board_size=args.size, empty_percentage=args.empty,
+                      tolerance_threshold=args.thresh)
+    if args.use_numpy and SchellingModelNumPy is None:
+        print('Warning: NumPy implementation not available; falling back to pure-Python')
+    if args.numba and args.use_numpy and SchellingModelNumPy is None:
+        print('Warning: numba requested but NumPy implementation not available; ignoring --numba')
     # fast mode implica `nogui` y desactiva salida textual para maximizar velocidad
     if args.fast:
         args.nogui = True
         args.text = False
+    # If user requested multiple simulation runs, execute them and exit with fraction
+    if args.sim_runs and args.sim_runs > 1:
+        if not hasattr(model, 'run_simulations'):
+            print('Model does not support run_simulations; falling back to sequential single run')
+        else:
+            frac = model.run_simulations(runs=args.sim_runs, max_generations=args.steps, parallel=args.sim_parallel, workers=args.sim_workers, fast=args.fast)
+            print(f'Convergence fraction: {frac:.3f} ({int(frac * args.sim_runs)}/{args.sim_runs})')
+            return
     if args.text:
         # run in text-only mode (no matplotlib) — aligned columns with per-generation time
         col1_width = 12
@@ -266,7 +290,7 @@ def main():
             if unhappy == 0:
                 print('All agents happy — stopping')
                 break
-        print('Simulation did not converge in {} generations'.format(args.steps))
+
         return
 
     t = time.time()

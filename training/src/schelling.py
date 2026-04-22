@@ -5,6 +5,25 @@ import os
 import concurrent.futures
 
 
+def _worker_run_schelling(snapshot, params, seed, max_generations, fast):
+    """Worker function for running a single simulation in a separate process.
+
+    Returns 1 if converged, 0 otherwise.
+    """
+    import random
+    # create a fresh model and overwrite its board with the provided snapshot
+    m = SchellingModel(**params)
+    # snapshot is list of lists
+    m.board = [row.copy() for row in snapshot]
+    m.gen = 0
+    m.unhappy_history.clear()
+    m.segregation_history.clear()
+    m.satisfaction_history.clear()
+    m._compute_neighbor_coords_cache()
+    random.seed(seed)
+    return int(m.init(max_generations=max_generations))
+
+
 class SchellingModel:
     """Schelling segregation model on an odd-r hexagonal grid with toroidal wrap.
 
@@ -319,6 +338,8 @@ class SchellingModel:
         Devuelve el número de agentes insatisfechos tras el paso.
         """
         # If NumPy acceleration is available and neighbor index built, use it
+        if self.use_numpy:
+            import numpy as np
         if self.use_numpy and np is not None and self._neighbor_index is not None:
             return self._step_numpy(fast=fast)
 
@@ -396,6 +417,59 @@ class SchellingModel:
                 break
             if (not fast) and self.should_stop_by_stagnation():
                 break
+
+    def run_simulations(self, runs=10, max_generations=1000, parallel=False, workers=None, base_seed=None, fast=False):
+        """Run `runs` independent simulations starting from the current board snapshot.
+
+        Returns the fraction of simulations that converged (float between 0 and 1).
+
+        - `parallel`: if True attempts to run simulations in parallel using
+          `ProcessPoolExecutor` (may be limited on Windows).
+        - `workers`: number of worker processes to use when parallel=True.
+        - `base_seed`: optional base seed; if None a random base seed is chosen.
+        """
+        if runs <= 0:
+            return 0.0
+        # snapshot current board (list of lists)
+        snapshot = [row.copy() for row in self.board]
+        params = dict(
+            num_groups=self.num_groups,
+            num_neighbors=self.num_neighbors,
+            board_size=self.N,
+            empty_percentage=self.empty_percentage,
+            tolerance_threshold=self.tolerance_threshold,
+            stall_window=self.stall_window,
+            stall_delta=self.stall_delta,
+        )
+        if base_seed is None:
+            base_seed = random.randrange(2 ** 30)
+
+        results = []
+        if parallel and runs > 1:
+            max_workers = workers or min(runs, (os.cpu_count() or 1))
+            with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as ex:
+                futures = [ex.submit(_worker_run_schelling, snapshot, params, base_seed + i, max_generations, fast) for i in range(runs)]
+                for f in concurrent.futures.as_completed(futures):
+                    results.append(int(f.result()))
+        else:
+            # sequential: preserve global RNG state
+            state = random.getstate()
+            try:
+                for i in range(runs):
+                    random.seed(base_seed + i)
+                    m = SchellingModel(**params)
+                    m.board = [row.copy() for row in snapshot]
+                    m.gen = 0
+                    m.unhappy_history.clear()
+                    m.segregation_history.clear()
+                    m.satisfaction_history.clear()
+                    m._compute_neighbor_coords_cache()
+                    results.append(int(m.init(max_generations=max_generations)))
+            finally:
+                random.setstate(state)
+
+        converged = sum(results)
+        return float(converged) / float(runs)
 
     def reset(self):
         self._init_board()
