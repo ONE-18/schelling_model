@@ -1,5 +1,12 @@
 import unittest
+import sys
+import os
+# ensure `training` is on sys.path so `src` package can be imported during tests
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from src.schelling import SchellingModel
+import random
+# make tests deterministic
+random.seed(0)
 
 class TestSchellingModel(unittest.TestCase):
 

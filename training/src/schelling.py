@@ -1,6 +1,8 @@
 import math
 import random
 from collections import deque
+import os
+import concurrent.futures
 
 
 class SchellingModel:
@@ -150,6 +152,46 @@ class SchellingModel:
         # otherwise compute on the fly
         return self._compute_neighbor_coords_once(row, col, radius)
 
+    def _scan_chunk(self, row_start, row_end):
+        """Scan a row range and return (unhappy_list, empty_list)."""
+        unhappy = []
+        empty = []
+        for i in range(row_start, row_end):
+            for j in range(self.N):
+                if self.board[i][j] == 0:
+                    empty.append((i, j))
+                else:
+                    if not self.is_happy(i, j):
+                        unhappy.append((i, j))
+        return unhappy, empty
+
+    def _find_unhappy_and_empty_parallel(self):
+        """Parallel scan over row ranges to collect unhappy and empty cells."""
+        workers = min(32, (os.cpu_count() or 1), self.N)
+        if workers <= 1:
+            return self._scan_chunk(0, self.N)
+
+        chunk = int(math.ceil(self.N / workers))
+        ranges = []
+        for w in range(workers):
+            start = w * chunk
+            end = min((w + 1) * chunk, self.N)
+            if start < end:
+                ranges.append((start, end))
+
+        unhappy = []
+        empty = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+            futures = [ex.submit(self._scan_chunk, s, e) for (s, e) in ranges]
+            for f in concurrent.futures.as_completed(futures):
+                u, e = f.result()
+                unhappy.extend(u)
+                empty.extend(e)
+        # ensure deterministic row-major ordering before any random shuffle
+        unhappy.sort(key=lambda x: (x[0], x[1]))
+        empty.sort(key=lambda x: (x[0], x[1]))
+        return unhappy, empty
+
     def is_happy(self, row, col):
         v = int(self.board[row][col])
         if v == 0:
@@ -161,16 +203,9 @@ class SchellingModel:
         same = sum(1 for x in nbrs if x == v)
         return (same / len(nbrs)) >= thresh
 
-    def step(self):
-        unhappy = []
-        empty = []
-        for i in range(self.N):
-            for j in range(self.N):
-                if self.board[i][j] == 0:
-                    empty.append((i, j))
-                else:
-                    if not self.is_happy(i, j):
-                        unhappy.append((i, j))
+    def step(self, fast=False):
+        # parallelized scan for unhappy and empty cells
+        unhappy, empty = self._find_unhappy_and_empty_parallel()
 
         random.shuffle(unhappy)
         random.shuffle(empty)
@@ -182,15 +217,17 @@ class SchellingModel:
             self.board[ui][uj] = 0
 
         self.gen += 1
-        unhappy_count = sum(1 for i in range(self.N) for j in range(self.N) if self.board[i][j] != 0 and not self.is_happy(i, j))
+        # compute unhappy count and optionally update histories
+        unhappy_count = sum(1 for i in range(self.N) for j in range(self.N)
+                           if self.board[i][j] != 0 and not self.is_happy(i, j))
         total_nonempty = sum(1 for row in self.board for cell in row if cell != 0)
         unhappy_pct = 0 if total_nonempty == 0 else round(unhappy_count / total_nonempty * 100)
 
-        segregation = self.segregation_index()
-
-        self.unhappy_history.append(unhappy_pct)
-        self.segregation_history.append(segregation)
-        self.satisfaction_history.append(100 - unhappy_pct)
+        if not fast:
+            segregation = self.segregation_index()
+            self.unhappy_history.append(unhappy_pct)
+            self.segregation_history.append(segregation)
+            self.satisfaction_history.append(100 - unhappy_pct)
 
         return unhappy_count
 
@@ -222,12 +259,12 @@ class SchellingModel:
         past = self.satisfaction_history[-1 - n]
         return (current - past) < delta
 
-    def run(self, max_generations=10000, stop_on_empty_unhappy=True):
+    def run(self, max_generations=10000, stop_on_empty_unhappy=True, fast=False):
         for _ in range(max_generations):
-            unhappy = self.step()
+            unhappy = self.step(fast=fast)
             if unhappy == 0 and stop_on_empty_unhappy:
                 break
-            if self.should_stop_by_stagnation():
+            if (not fast) and self.should_stop_by_stagnation():
                 break
 
     def reset(self):

@@ -37,15 +37,14 @@ def get_hex_center(i, j, layout):
     )
 
 
-def animate_model(model: SchellingModel, interval=200, max_steps=1000, nogui=False, out_path=None):
+def animate_model(model: SchellingModel, interval=200, max_steps=1000, nogui=False, out_path=None, fast=False):
     N = model.N
     # choose r so grid fits comfortably in unit coords
     r = 1.0
     layout = get_hex_layout(N, r)
 
     if nogui:
-        # run model and save a snapshot + stats chart
-        model.run(max_generations=max_steps)
+        # prepare plotting backend for snapshot
         import matplotlib
         matplotlib.use('Agg')
         import matplotlib.pyplot as plt
@@ -97,7 +96,7 @@ def animate_model(model: SchellingModel, interval=200, max_steps=1000, nogui=Fal
         # perform a step for frames > 0 and capture unhappy count
         unhappy = None
         if frame > 0:
-            unhappy = model.step()
+            unhappy = model.step(fast=fast)
 
         board = model.board
         for i in range(N):
@@ -139,8 +138,36 @@ def animate_model(model: SchellingModel, interval=200, max_steps=1000, nogui=Fal
 
         return []
 
+    def render_state():
+        # paint polygons according to current board
+        board = model.board
+        for i in range(N):
+            for j in range(N):
+                v = int(board[i][j])
+                poly = patches_list[i][j]
+                if v == 0:
+                    poly.set_facecolor('#e8e6e0')
+                    poly.set_edgecolor('#cfcfcf')
+                else:
+                    c = GROUP_COLORS[(v - 1) % len(GROUP_COLORS)]
+                    poly.set_facecolor(c['fill'])
+                    poly.set_edgecolor(c['stroke'])
+        txt_gen.set_text(f'Generación: {model.gen}')
+
+        xs = list(range(max(1, len(model.unhappy_history))))
+        ys = model.unhappy_history
+        zs = model.segregation_history
+        if ys:
+            line_unhappy.set_data(xs, ys)
+            ax_chart.set_xlim(0, max(10, len(xs)))
+        if zs:
+            line_segr.set_data(xs, zs)
+            ax_chart2.set_xlim(0, max(10, len(xs)))
+
     if nogui:
-        # finalize and save
+        # run the model (once), render final state and save snapshot
+        model.run(max_generations=max_steps, fast=fast)
+        render_state()
         plt.tight_layout()
         path = out_path or 'schelling_snapshot.png'
         fig.savefig(path, dpi=150)
@@ -164,11 +191,15 @@ def main():
     parser.add_argument('--nogui', action='store_true', help='Run without GUI and save a snapshot')
     parser.add_argument('--out', type=str, default=None, help='Output path for snapshot when --nogui')
     parser.add_argument('--text', action='store_true', help='Run in text-only mode, printing stats to console')
+    parser.add_argument('--fast', action='store_true', help='Run in fastest mode (skip stats/plots)')
     args = parser.parse_args()
 
     model = SchellingModel(num_groups=args.groups, num_neighbors=args.radius,
                            board_size=args.size, empty_percentage=args.empty,
                            tolerance_threshold=args.thresh)
+    # fast mode implies nogui to maximize speed
+    if args.fast:
+        args.nogui = True
     if args.text:
         # run in text-only mode (no matplotlib) — aligned columns with per-generation time
         col1_width = 12
@@ -184,7 +215,7 @@ def main():
         print(header)
         for _ in range(args.steps):
             start = time.perf_counter()
-            unhappy = model.step()
+            unhappy = model.step(fast=args.fast)
             gen_time = time.perf_counter() - start
             total_nonempty = sum(1 for row in model.board for cell in row if cell != 0)
             unhappy_pct = 0 if total_nonempty == 0 else model.unhappy_history[-1]
@@ -200,7 +231,7 @@ def main():
                 break
         return
 
-    animate_model(model, interval=200, max_steps=args.steps, nogui=args.nogui, out_path=args.out)
+    animate_model(model, interval=200, max_steps=args.steps, nogui=args.nogui, out_path=args.out, fast=args.fast)
 
 
 if __name__ == '__main__':
