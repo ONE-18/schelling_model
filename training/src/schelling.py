@@ -13,7 +13,7 @@ class SchellingModel:
 
     def __init__(self, num_groups=3, num_neighbors=1, board_size=35,
                  empty_percentage=0.15, tolerance_threshold=0.4,
-                 stall_window=500, stall_delta=2):
+                 stall_window=500, stall_delta=2, use_numpy=False):
         """Inicializa el modelo con los parámetros dados y prepara el tablero.
 
         Parámetros:
@@ -31,6 +31,8 @@ class SchellingModel:
         self.tolerance_threshold = float(tolerance_threshold)
         self.stall_window = int(stall_window)
         self.stall_delta = int(stall_delta)
+        # control whether to use NumPy-accelerated path (default off)
+        self.use_numpy = bool(use_numpy)
 
         # board as list of lists: 0 = empty, 1..G = groups
         self.board = [[0 for _ in range(self.N)] for _ in range(self.N)]
@@ -169,7 +171,6 @@ class SchellingModel:
         for i in range(self.N):
             for j in range(self.N):
                 self._neighbor_coords[i][j] = self._compute_neighbor_coords_once(i, j, self.num_neighbors)
-
     def hex_neighbors_in_radius(self, row, col, radius):
         """Devuelve los valores de las celdas vecinas dentro del `radius`.
 
@@ -267,6 +268,60 @@ class SchellingModel:
           calcula el índice de segregación.
         Devuelve el número de agentes insatisfechos tras el paso.
         """
+        unhappy, empty = self._find_unhappy_and_empty_parallel()
+
+        random.shuffle(unhappy)
+        random.shuffle(empty)
+        moves = min(len(unhappy), len(empty))
+        for k in range(moves):
+            ui, uj = unhappy[k]
+            ei, ej = empty[k]
+            self.board[ei][ej] = self.board[ui][uj]
+            self.board[ui][uj] = 0
+
+        self.gen += 1
+        unhappy_count = sum(1 for i in range(self.N) for j in range(self.N)
+                           if self.board[i][j] != 0 and not self.is_happy(i, j))
+        total_nonempty = sum(1 for row in self.board for cell in row if cell != 0)
+        unhappy_pct = 0 if total_nonempty == 0 else round(unhappy_count / total_nonempty * 100)
+
+        if not fast:
+            segregation = self.segregation_index()
+            self.unhappy_history.append(unhappy_pct)
+            self.segregation_history.append(segregation)
+            self.satisfaction_history.append(100 - unhappy_pct)
+
+        return unhappy_count
+
+    def is_happy(self, row, col):
+        """Determina si el agente en (row,col) está satisfecho según el umbral.
+
+        Retorna True para celdas vacías o cuando la fracción de vecinos del
+        mismo grupo >= `tolerance_threshold`.
+        """
+        v = int(self.board[row][col])
+        if v == 0:
+            return True
+        thresh = float(self.tolerance_threshold)
+        nbrs = [int(x) for x in self.hex_neighbors_in_radius(row, col, self.num_neighbors) if x != 0]
+        if not nbrs:
+            return True
+        same = sum(1 for x in nbrs if x == v)
+        return (same / len(nbrs)) >= thresh
+
+    def step(self, fast=False):
+        """Ejecuta una generación del modelo.
+
+        - Encuentra celdas insatisfechas y vacías (paralelizado).
+        - Reubica aleatoriamente agentes insatisfechos en celdas vacías.
+        - Actualiza contadores y, salvo `fast=True`, actualiza historiales y
+          calcula el índice de segregación.
+        Devuelve el número de agentes insatisfechos tras el paso.
+        """
+        # If NumPy acceleration is available and neighbor index built, use it
+        if self.use_numpy and np is not None and self._neighbor_index is not None:
+            return self._step_numpy(fast=fast)
+
         unhappy, empty = self._find_unhappy_and_empty_parallel()
 
         random.shuffle(unhappy)
