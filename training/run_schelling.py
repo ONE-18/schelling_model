@@ -1,3 +1,10 @@
+"""Script para ejecutar y animar el modelo de Schelling.
+
+Proporciona una interfaz CLI para ejecutar simulaciones, generar snapshots
+sin GUI (`--nogui`) y un modo rápido (`--fast`) que minimiza cálculos
+extra para maximizar rendimiento.
+"""
+
 import argparse
 import math
 import traceback
@@ -23,6 +30,10 @@ GROUP_COLORS = [
 
 
 def get_hex_layout(N, r=1.0):
+    """Calcula dimensiones y offsets para un layout hexagonal.
+
+    Devuelve un diccionario con parámetros usados al posicionar las celdas.
+    """
     sqrt3 = math.sqrt(3)
     hexW = sqrt3 * r
     gridW = hexW * (N + 0.5)
@@ -31,6 +42,10 @@ def get_hex_layout(N, r=1.0):
 
 
 def get_hex_center(i, j, layout):
+    """Devuelve el centro (x,y) de la celda hexagonal (i,j) en el layout.
+
+    Considera el offset por filas impares (odd-r layout).
+    """
     return (
         layout['offsetX'] + layout['hexW'] * (j + 0.5 + (i % 2) * 0.5),
         layout['offsetY'] + layout['r'] * (1 + i * 1.5),
@@ -38,6 +53,15 @@ def get_hex_center(i, j, layout):
 
 
 def animate_model(model: SchellingModel, interval=200, max_steps=1000, nogui=False, out_path=None, fast=False):
+    """Crea la animación del modelo o guarda un snapshot en `nogui`.
+
+    Parámetros:
+    - `model`: instancia de `SchellingModel`.
+    - `interval`: milisegundos entre frames en modo GUI.
+    - `max_steps`: máximo de generaciones a ejecutar.
+    - `nogui`: si True, se guarda un snapshot estático en `out_path`.
+    - `fast`: si True, se ejecuta con menos overhead (omite calcular historiales).
+    """
     N = model.N
     # choose r so grid fits comfortably in unit coords
     r = 1.0
@@ -165,7 +189,8 @@ def animate_model(model: SchellingModel, interval=200, max_steps=1000, nogui=Fal
             ax_chart2.set_xlim(0, max(10, len(xs)))
 
     if nogui:
-        # run the model (once), render final state and save snapshot
+        # run the simulation (fast if requested), render final state and save
+        # a snapshot that includes the board and any collected series.
         model.run(max_generations=max_steps, fast=fast)
         render_state()
         plt.tight_layout()
@@ -180,6 +205,7 @@ def animate_model(model: SchellingModel, interval=200, max_steps=1000, nogui=Fal
         plt.show()
 
 def main():
+    # CLI: argumentos para controlar la simulación y la salida
     parser = argparse.ArgumentParser(description='Run Schelling model animation')
     parser.add_argument('--groups', type=int, default=3)
     parser.add_argument('--radius', type=int, default=1)
@@ -193,10 +219,11 @@ def main():
     parser.add_argument('--fast', action='store_true', help='Run in fastest mode (skip stats/plots)')
     args = parser.parse_args()
 
+    # crear instancia del modelo con parámetros de línea de comandos
     model = SchellingModel(num_groups=args.groups, num_neighbors=args.radius,
                            board_size=args.size, empty_percentage=args.empty,
                            tolerance_threshold=args.thresh)
-    # fast mode implies nogui to maximize speed
+    # fast mode implica `nogui` y desactiva salida textual para maximizar velocidad
     if args.fast:
         args.nogui = True
         args.text = False
@@ -233,6 +260,7 @@ def main():
         return
 
     t = time.time()
+    # Llamada principal: muestra animación o guarda snapshot según flags
     animate_model(model, interval=200, max_steps=args.steps, nogui=args.nogui, out_path=args.out, fast=args.fast)
     print('Simulation completed in {:.4f}s'.format(time.time() - t))
 

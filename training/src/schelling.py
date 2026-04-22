@@ -14,6 +14,16 @@ class SchellingModel:
     def __init__(self, num_groups=3, num_neighbors=1, board_size=35,
                  empty_percentage=0.15, tolerance_threshold=0.4,
                  stall_window=500, stall_delta=2):
+        """Inicializa el modelo con los parámetros dados y prepara el tablero.
+
+        Parámetros:
+        - `num_groups`: número de grupos de agentes.
+        - `num_neighbors`: radio de vecinos hexagonales.
+        - `board_size`: tamaño N del tablero (N x N).
+        - `empty_percentage`: fracción de celdas vacías.
+        - `tolerance_threshold`: umbral de tolerancia para estar satisfecho.
+        - `stall_window`, `stall_delta`: parámetros para detección de estancamiento.
+        """
         self.num_groups = int(num_groups)
         self.num_neighbors = int(num_neighbors)
         self.N = int(board_size)
@@ -37,6 +47,10 @@ class SchellingModel:
         self._compute_neighbor_coords_cache()
 
     def _init_board(self):
+        """Genera y baraja la distribución inicial de agentes y celdas vacías.
+
+        Construye `self.board` como lista 2D y reinicia contadores/historiales.
+        """
         total = self.N * self.N
         num_empty = int(round(total * self.empty_percentage))
         num_nonempty = total - num_empty
@@ -66,7 +80,10 @@ class SchellingModel:
         self.satisfaction_history.clear()
 
     def converges(self):
-        # converged when there are no unhappy agents
+        """Devuelve True si no hay agentes insatisfechos en el tablero.
+
+        Recorre el tablero y comprueba `is_happy` para cada agente no vacío.
+        """
         for i in range(self.N):
             for j in range(self.N):
                 if self.board[i][j] != 0 and not self.is_happy(i, j):
@@ -74,6 +91,11 @@ class SchellingModel:
         return True
 
     def init(self, max_generations=1000):
+        """Ejecuta el modelo hasta `max_generations` o hasta convergencia.
+
+        Incrementa `self.gen` y llama a `step()` repetidamente. Devuelve 1 si
+        converge antes de agotar las generaciones, 0 en caso contrario.
+        """
         for _ in range(max_generations):
             self.gen += 1
             self.step()
@@ -83,22 +105,35 @@ class SchellingModel:
 
     # coordinate helpers (port from the JS odd-r / axial helpers)
     def oddr_to_axial(self, row, col):
+        """Convierte coordenadas odd-r (fila, columna) a coordenadas axiales (q, r).
+
+        Útil para calcular vecinos en rejilla hexagonal con offset impar.
+        """
         row_parity = abs(row % 2)
         q = col - (row - row_parity) // 2
         r = row
         return q, r
 
     def axial_to_oddr(self, q, r):
+        """Convierte coordenadas axiales (q, r) a odd-r (fila, columna)."""
         row_parity = abs(r % 2)
         row = r
         col = q + (r - row_parity) // 2
         return row, col
 
     def wrap_index(self, v):
+        """Aplica envoltura toroidal al índice `v` basándose en `self.N`.
+
+        Devuelve el índice equivalente en el rango [0, N).
+        """
         return v % self.N
 
     def _compute_neighbor_coords_once(self, row, col, radius):
-        # compute neighbor coords for a single cell (with wrapping)
+        """Calcula las coordenadas (fila,col) de todos los vecinos dentro de
+        `radius` para una celda dada, aplicando envoltura toroidal.
+
+        Evita duplicados usando `seen` y excluye la propia celda.
+        """
         if radius <= 0:
             return []
         origin_q, origin_r = self.oddr_to_axial(row, col)
@@ -123,7 +158,11 @@ class SchellingModel:
         return coords
 
     def _compute_neighbor_coords_cache(self):
-        # compute and store neighbor coordinate lists for every cell
+        """Precomputa y almacena la lista de coordenadas de vecinos para cada celda.
+
+        Esta cache acelera consultas repetidas de vecinos cuando `num_neighbors`
+        es fija.
+        """
         self._neighbor_coords = [[[] for _ in range(self.N)] for _ in range(self.N)]
         if self.num_neighbors <= 0:
             return
@@ -132,28 +171,35 @@ class SchellingModel:
                 self._neighbor_coords[i][j] = self._compute_neighbor_coords_once(i, j, self.num_neighbors)
 
     def hex_neighbors_in_radius(self, row, col, radius):
-        # use cached neighbor coordinates when possible
+        """Devuelve los valores de las celdas vecinas dentro del `radius`.
+
+        Usa la cache cuando `radius` coincide con `num_neighbors`, sino calcula
+        las coordenadas al vuelo.
+        """
         if radius <= 0:
             return []
         if self._neighbor_coords is not None and radius == self.num_neighbors:
             coords = self._neighbor_coords[row][col]
             return [self.board[r][c] for (r, c) in coords]
-        # fallback: compute on the fly
         coords = self._compute_neighbor_coords_once(row, col, radius)
         return [self.board[r][c] for (r, c) in coords]
 
     def neighbors_coords(self, row, col, radius):
-        # return list of (r,c) coords for neighbors in radius
+        """Devuelve una lista de coordenadas (fila,col) de vecinos dentro del radio.
+
+        Retorna la cache cuando es aplicable, o calcula las coordenadas.
+        """
         if radius <= 0:
             return []
-        # return cached coords when radius matches configured num_neighbors
         if self._neighbor_coords is not None and radius == self.num_neighbors:
             return list(self._neighbor_coords[row][col])
-        # otherwise compute on the fly
         return self._compute_neighbor_coords_once(row, col, radius)
 
     def _scan_chunk(self, row_start, row_end):
-        """Scan a row range and return (unhappy_list, empty_list)."""
+        """Escanea un rango de filas y devuelve listas de celdas insatisfechas y vacías.
+
+        Diseñado para usarse por hilos/trabajadores en paralelización.
+        """
         unhappy = []
         empty = []
         for i in range(row_start, row_end):
@@ -166,7 +212,11 @@ class SchellingModel:
         return unhappy, empty
 
     def _find_unhappy_and_empty_parallel(self):
-        """Parallel scan over row ranges to collect unhappy and empty cells."""
+        """Escanea en paralelo el tablero y concatena listas de celdas insatisfechas y vacías.
+
+        Divide las filas en trozos, lanza tareas con `ThreadPoolExecutor` y
+        combina resultados ordenándolos en orden fila-columna.
+        """
         workers = min(32, (os.cpu_count() or 1), self.N)
         if workers <= 1:
             return self._scan_chunk(0, self.N)
@@ -193,6 +243,11 @@ class SchellingModel:
         return unhappy, empty
 
     def is_happy(self, row, col):
+        """Determina si el agente en (row,col) está satisfecho según el umbral.
+
+        Retorna True para celdas vacías o cuando la fracción de vecinos del
+        mismo grupo >= `tolerance_threshold`.
+        """
         v = int(self.board[row][col])
         if v == 0:
             return True
@@ -204,7 +259,14 @@ class SchellingModel:
         return (same / len(nbrs)) >= thresh
 
     def step(self, fast=False):
-        # parallelized scan for unhappy and empty cells
+        """Ejecuta una generación del modelo.
+
+        - Encuentra celdas insatisfechas y vacías (paralelizado).
+        - Reubica aleatoriamente agentes insatisfechos en celdas vacías.
+        - Actualiza contadores y, salvo `fast=True`, actualiza historiales y
+          calcula el índice de segregación.
+        Devuelve el número de agentes insatisfechos tras el paso.
+        """
         unhappy, empty = self._find_unhappy_and_empty_parallel()
 
         random.shuffle(unhappy)
@@ -217,7 +279,6 @@ class SchellingModel:
             self.board[ui][uj] = 0
 
         self.gen += 1
-        # compute unhappy count and optionally update histories
         unhappy_count = sum(1 for i in range(self.N) for j in range(self.N)
                            if self.board[i][j] != 0 and not self.is_happy(i, j))
         total_nonempty = sum(1 for row in self.board for cell in row if cell != 0)
@@ -232,6 +293,11 @@ class SchellingModel:
         return unhappy_count
 
     def segregation_index(self):
+        """Calcula un índice simple de segregación.
+
+        Para cada agente suma cuántos vecinos son del mismo grupo y normaliza
+        por el total de vecinos considerandos, devolviendo un porcentaje.
+        """
         same = 0
         total = 0
         for i in range(self.N):
@@ -239,7 +305,6 @@ class SchellingModel:
                 v = int(self.board[i][j])
                 if v == 0:
                     continue
-                # use cached neighbor coords when available
                 coords = self.neighbors_coords(i, j, self.num_neighbors)
                 nbrs = [int(self.board[r][c]) for (r, c) in coords if self.board[r][c] != 0]
                 if not nbrs:
@@ -249,6 +314,11 @@ class SchellingModel:
         return 0 if total == 0 else round(same / total * 100)
 
     def should_stop_by_stagnation(self):
+        """Devuelve True si la satisfacción no ha mejorado suficientemente en la ventana.
+
+        Compara la satisfacción actual con la de `n` generaciones atrás y
+        devuelve True si la diferencia es menor que `stall_delta`.
+        """
         n = int(self.stall_window)
         delta = int(self.stall_delta)
         if n <= 0 or delta <= 0:
@@ -260,6 +330,11 @@ class SchellingModel:
         return (current - past) < delta
 
     def run(self, max_generations=10000, stop_on_empty_unhappy=True, fast=False):
+        """Ejecuta el modelo durante hasta `max_generations` generaciones.
+
+        Si `fast=True` evita comprobaciones y cálculos adicionales para maximizar
+        el rendimiento. Puede parar si no hay agentes insatisfechos.
+        """
         for _ in range(max_generations):
             unhappy = self.step(fast=fast)
             if unhappy == 0 and stop_on_empty_unhappy:
