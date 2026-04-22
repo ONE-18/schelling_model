@@ -21,7 +21,11 @@ def _worker_run_schelling(snapshot, params, seed, max_generations, fast):
     m.satisfaction_history.clear()
     m._compute_neighbor_coords_cache()
     random.seed(seed)
-    return int(m.init(max_generations=max_generations))
+    import time
+    t0 = time.perf_counter()
+    res = int(m.init(max_generations=max_generations))
+    t1 = time.perf_counter()
+    return (res, t1 - t0)
 
 
 class SchellingModel:
@@ -418,19 +422,25 @@ class SchellingModel:
             if (not fast) and self.should_stop_by_stagnation():
                 break
 
-    def run_simulations(self, runs=10, max_generations=1000, parallel=False, workers=None, base_seed=None, fast=False):
+    def run_simulations(self, runs=10, max_generations=1000, parallel=False, workers=None, base_seed=None, fast=False, mode='process', verbose=True):
         """Run `runs` independent simulations starting from the current board snapshot.
 
-        Returns the fraction of simulations that converged (float between 0 and 1).
+        Returns a dict with statistics: {
+            'runs', 'converged', 'fraction', 'total_time', 'mean_time', 'std_time', 'times'
+        }
 
-        - `parallel`: if True attempts to run simulations in parallel using
-          `ProcessPoolExecutor` (may be limited on Windows).
-        - `workers`: number of worker processes to use when parallel=True.
+        - `parallel`: if True uses pool execution according to `mode` ('process' or 'thread').
+        - `mode`: 'process' or 'thread' (ignored when parallel=False).
+        - `workers`: number of workers for parallel execution.
         - `base_seed`: optional base seed; if None a random base seed is chosen.
+        - `verbose`: if True prints a short summary to stdout.
         """
+        import time
+        import statistics
+
         if runs <= 0:
-            return 0.0
-        # snapshot current board (list of lists)
+            return {'runs': 0, 'converged': 0, 'fraction': 0.0, 'total_time': 0.0, 'mean_time': 0.0, 'std_time': 0.0, 'times': []}
+
         snapshot = [row.copy() for row in self.board]
         params = dict(
             num_groups=self.num_groups,
@@ -444,19 +454,27 @@ class SchellingModel:
         if base_seed is None:
             base_seed = random.randrange(2 ** 30)
 
+        times = []
         results = []
+        t0 = time.perf_counter()
+
         if parallel and runs > 1:
             max_workers = workers or min(runs, (os.cpu_count() or 1))
-            with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as ex:
+            Executor = concurrent.futures.ProcessPoolExecutor if mode == 'process' else concurrent.futures.ThreadPoolExecutor
+            with Executor(max_workers=max_workers) as ex:
                 futures = [ex.submit(_worker_run_schelling, snapshot, params, base_seed + i, max_generations, fast) for i in range(runs)]
                 for f in concurrent.futures.as_completed(futures):
-                    results.append(int(f.result()))
+                    res, dur = f.result()
+                    results.append(int(res))
+                    times.append(float(dur))
         else:
-            # sequential: preserve global RNG state
+            # sequential: preserve RNG state
             state = random.getstate()
             try:
                 for i in range(runs):
-                    random.seed(base_seed + i)
+                    s = base_seed + i
+                    random.seed(s)
+                    t1 = time.perf_counter()
                     m = SchellingModel(**params)
                     m.board = [row.copy() for row in snapshot]
                     m.gen = 0
@@ -464,12 +482,34 @@ class SchellingModel:
                     m.segregation_history.clear()
                     m.satisfaction_history.clear()
                     m._compute_neighbor_coords_cache()
-                    results.append(int(m.init(max_generations=max_generations)))
+                    res = int(m.init(max_generations=max_generations))
+                    t2 = time.perf_counter()
+                    results.append(res)
+                    times.append(t2 - t1)
             finally:
                 random.setstate(state)
 
-        converged = sum(results)
-        return float(converged) / float(runs)
+        t_total = time.perf_counter() - t0
+        converged = int(sum(results))
+        fraction = float(converged) / float(runs)
+        mean_t = float(statistics.mean(times)) if times else 0.0
+        std_t = float(statistics.pstdev(times)) if times else 0.0
+
+        stats = {
+            'runs': runs,
+            'converged': converged,
+            'fraction': fraction,
+            'total_time': t_total,
+            'mean_time': mean_t,
+            'std_time': std_t,
+            'times': times,
+        }
+
+        if verbose:
+            print(f'Ran {runs} simulations: {converged} converged ({fraction:.3f})')
+            print(f'Total wall time: {t_total:.4f}s, mean per-run: {mean_t:.4f}s, std: {std_t:.4f}s')
+
+        return stats
 
     def reset(self):
         self._init_board()

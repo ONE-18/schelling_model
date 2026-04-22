@@ -231,12 +231,20 @@ def main():
     parser.add_argument('--out', type=str, default=None, help='Output path for snapshot when --nogui')
     parser.add_argument('--text', action='store_true', help='Run in text-only mode, printing stats to console')
     parser.add_argument('--fast', action='store_true', help='Run in fastest mode (skip stats/plots)')
-    parser.add_argument('--use-numpy', action='store_true', default=True, help='Use NumPy-accelerated implementation (if available)')
-    parser.add_argument('--numba', action='store_true', default=True, help='Enable numba JIT in NumPy implementation (if available)')
+    parser.add_argument('--use-numpy', action='store_true', help='Use NumPy-accelerated implementation (if available)')
+    parser.add_argument('--numba', action='store_true', help='Enable numba JIT in NumPy implementation (if available)')
     parser.add_argument('--sim-runs', type=int, default=1, help='Run multiple independent simulations from same initial board and report convergence fraction')
-    parser.add_argument('--sim-parallel', action='store_true', default=True, help='When using --sim-runs, run them in parallel processes')
+    parser.add_argument('--sim-parallel', action='store_true', default=True, help='When using --sim-runs, run them in parallel')
     parser.add_argument('--sim-workers', type=int, default=None, help='Number of workers for parallel simulations')
+    parser.add_argument('--sim-mode', choices=['process', 'thread', 'sequential'], default='process', help='Mode for parallel simulations')
+    parser.add_argument('--dump-times', action='store_true', help='Print per-run times from run_simulations()')
     args = parser.parse_args()
+    
+    """
+    - process: ejecuta las corridas en paralelo usando ProcessPoolExecutor. Cada run corre en un proceso separado (no comparten GIL), es mejor para tareas CPU-bound pero tiene overhead de serializar/crear procesos (spawn en Windows).
+    - thread: ejecuta las corridas en paralelo usando ThreadPoolExecutor. Las tareas corren en hilos del mismo proceso (menos overhead), pero siguen sujetas al GIL para código Python—útil solo si las tareas son I/O-bound o usan extensiones que liberan el GIL.
+    - sequential: ejecuta las corridas una tras otra en el proceso actual. Conserva el estado RNG entre runs (se restaura al final) y es determinista por semilla; tiene el menor overhead y es útil para comparaciones reproducibles.
+    """
 
     # crear instancia del modelo con parámetros de línea de comandos
     model_cls = SchellingModel
@@ -258,8 +266,17 @@ def main():
         if not hasattr(model, 'run_simulations'):
             print('Model does not support run_simulations; falling back to sequential single run')
         else:
-            frac = model.run_simulations(runs=args.sim_runs, max_generations=args.steps, parallel=args.sim_parallel, workers=args.sim_workers, fast=args.fast)
-            print(f'Convergence fraction: {frac:.3f} ({int(frac * args.sim_runs)}/{args.sim_runs})')
+            # Enable parallel when sim_mode requests it, or when --sim-parallel given
+            parallel_flag = bool(args.sim_parallel or (args.sim_mode in ('process', 'thread')))
+            stats = model.run_simulations(runs=args.sim_runs, max_generations=args.steps,
+                                          parallel=parallel_flag, workers=args.sim_workers,
+                                          base_seed=None, fast=args.fast, mode=args.sim_mode, verbose=True)
+            print(f"Convergence: {stats['converged']}/{stats['runs']} ({stats['fraction']:.3f})")
+            print(f"Total time: {stats['total_time']:.4f}s — mean per-run: {stats['mean_time']:.4f}s (std: {stats['std_time']:.4f}s)")
+            if args.dump_times:
+                print('Per-run times (s):')
+                for k, tt in enumerate(stats.get('times', []), start=1):
+                    print(f'  run {k:>2}: {tt:.4f}s')
             return
     if args.text:
         # run in text-only mode (no matplotlib) — aligned columns with per-generation time

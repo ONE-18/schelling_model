@@ -350,6 +350,7 @@ class SchellingModelNumPy:
 def _worker_run_schelling_numpy(snapshot, params, seed, max_generations, fast):
     import random
     from training.src.schelling_numpy import SchellingModelNumPy
+    import time
     m = SchellingModelNumPy(**params)
     m.board = snapshot.copy() if isinstance(snapshot, np.ndarray) else [row.copy() for row in snapshot]
     m.gen = 0
@@ -358,7 +359,10 @@ def _worker_run_schelling_numpy(snapshot, params, seed, max_generations, fast):
     m.satisfaction_history.clear()
     m._compute_neighbor_coords_cache()
     random.seed(seed)
-    return int(m.init(max_generations=max_generations))
+    t0 = time.perf_counter()
+    res = int(m.init(max_generations=max_generations))
+    t1 = time.perf_counter()
+    return (res, t1 - t0)
 
 
 if nb is not None:
