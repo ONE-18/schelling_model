@@ -134,7 +134,17 @@ def animate_model(model: SchellingModel, interval=200, max_steps=1000, nogui=Fal
                     c = GROUP_COLORS[(v - 1) % len(GROUP_COLORS)]
                     poly.set_facecolor(c['fill'])
                     poly.set_edgecolor(c['stroke'])
-        txt_gen.set_text(f'Generación: {model.gen}')
+        # compute current stats (handle fast mode where histories may be empty)
+        if unhappy is None:
+            # no step this frame: compute current values
+            unhappy_count = sum(1 for i in range(N) for j in range(N) if model.board[i][j] != 0 and not model.is_happy(i, j))
+        else:
+            unhappy_count = unhappy
+        total_nonempty = sum(1 for row in model.board for cell in row if cell != 0)
+        unhappy_pct = 0 if total_nonempty == 0 else round(unhappy_count / total_nonempty * 100)
+        # get segregation (may be computed in step when not fast; recompute here for accuracy)
+        segr = model.segregation_history[-1] if model.segregation_history else model.segregation_index()
+        txt_gen.set_text(f'Generación: {model.gen} — Insatisfechos: {unhappy_pct}% ({unhappy_count}) — Segregación: {segr}%')
 
         xs = list(range(max(1, len(model.unhappy_history))))
         ys = model.unhappy_history
