@@ -459,8 +459,21 @@ class SchellingModel:
         t0 = time.perf_counter()
 
         if parallel and runs > 1:
-            max_workers = workers or min(runs, (os.cpu_count() or 1))
+            # Determine requested max workers (respect explicit `workers` or pick a sensible default)
+            max_workers = workers if workers is not None else min(runs, (os.cpu_count() or 1))
+            # never ask for more workers than runs and ensure at least 1
+            max_workers = max(1, min(int(max_workers), runs))
             Executor = concurrent.futures.ProcessPoolExecutor if mode == 'process' else concurrent.futures.ThreadPoolExecutor
+            # On Windows ProcessPoolExecutor imposes an upper limit; cap if needed
+            if mode == 'process' and os.name == 'nt':
+                try:
+                    from concurrent.futures.process import _MAX_WINDOWS_WORKERS
+
+                    max_workers = min(max_workers, _MAX_WINDOWS_WORKERS)
+                except Exception:
+                    # fallback hard cap if internal constant unavailable
+                    max_workers = min(max_workers, 61)
+
             with Executor(max_workers=max_workers) as ex:
                 futures = [ex.submit(_worker_run_schelling, snapshot, params, base_seed + i, max_generations, fast) for i in range(runs)]
                 for f in concurrent.futures.as_completed(futures):

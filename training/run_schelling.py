@@ -268,9 +268,17 @@ def main():
         else:
             # Enable parallel when sim_mode requests it, or when --sim-parallel given
             parallel_flag = bool(args.sim_parallel or (args.sim_mode in ('process', 'thread')))
+            # If user requested thread-mode but the chosen model is the pure-Python
+            # `SchellingModel` (no NumPy/numba), the threads won't bypass the GIL
+            # and won't provide true CPU parallelism. Automatically fall back to
+            # processes and warn the user.
+            chosen_mode = args.sim_mode
+            if args.sim_mode == 'thread' and model_cls is SchellingModel and not args.use_numpy:
+                print('Note: requested thread mode but using pure-Python model; switching to process mode to get real parallelism (GIL).')
+                chosen_mode = 'process'
             stats = model.run_simulations(runs=args.sim_runs, max_generations=args.steps,
                                           parallel=parallel_flag, workers=args.sim_workers,
-                                          base_seed=None, fast=args.fast, mode=args.sim_mode, verbose=True)
+                                          base_seed=None, fast=args.fast, mode=chosen_mode, verbose=True)
             print(f"Convergence: {stats['converged']}/{stats['runs']} ({stats['fraction']:.3f})")
             print(f"Total time: {stats['total_time']:.4f}s — mean per-run: {stats['mean_time']:.4f}s (std: {stats['std_time']:.4f}s)")
             if args.dump_times:
